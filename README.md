@@ -3,6 +3,14 @@
 This is a implementation of RxJS API using a thread-like abstraction. 
 The goal is to understand the semantics of RxJS computation and provide an easier way to debug RxJS programs.
 
+**Paper and talk**
+
+- Paper: Tian Zhao and Yonglun Li, *Semantics of RxJS*, REBLS '22 —
+  [DOI 10.1145/3563837.3568340](https://doi.org/10.1145/3563837.3568340) ·
+  [open-access PDF (UWM Digital Commons)](https://dc.uwm.edu/comsci_facart/4)
+- Talk: [\[REBLS\] Semantics of RxJS on YouTube](https://www.youtube.com/watch?v=GsGVbj6wKJY)
+- Upstream code: [github.com/tianzhao/rxjs](https://github.com/tianzhao/rxjs)
+
 ## Main idea
 
 The project explains RxJS by rebuilding it on top of explicit concurrency primitives, so that the meaning
@@ -41,8 +49,8 @@ runtime invariant that every event source is uniquely guarded by a `catchError` 
 and uses this library as its testing ground. The thread abstraction, AsyncM, comes from the same authors'
 SLE 2021 paper *A Concurrency Model for JavaScript with Cooperative Cancellation*.
 
-The conference talk is on YouTube: [\[REBLS\] Semantics of RxJS](https://www.youtube.com/watch?v=GsGVbj6wKJY).
-Section 12 of the project explanation maps the paper's formal rules onto the code.
+Section 12 of the [project explanation](docs/project-explanation.md) maps the paper's formal rules onto
+the code.
 
 ## Usage
 
