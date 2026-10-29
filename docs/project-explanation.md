@@ -21,6 +21,53 @@ subscription tree.
 History: `tianzhao` wrote the core between August 2021 and August 2023; `Alan Li` added the debugging
 facility in November and December 2022. There are 24 commits and no git remote configured.
 
+### 1.1 The paper behind the project
+
+The code is the implementation companion of **"Semantics of RxJS"** by Tian Zhao and Yonglun Li
+(University of Wisconsin–Milwaukee), published at REBLS '22, the 9th ACM SIGPLAN International Workshop on
+Reactive and Event-Based Languages and Systems, Auckland, December 2022,
+DOI [10.1145/3563837.3568340](https://doi.org/10.1145/3563837.3568340). Section 5 of the paper describes
+this code base directly ("100 RxJS operators with about 2500 lines of code", `github.com/tianzhao/rxjs`).
+A local copy of the PDF lives at `../rxjs-rag/files/rxjs-semantics-rebls2022.pdf`. The REBLS talk is on
+YouTube as "[REBLS] Semantics of RxJS":
+[youtube.com/watch?v=GsGVbj6wKJY](https://www.youtube.com/watch?v=GsGVbj6wKJY&t=1055s) (the link opens at
+17:35, where the implementation is discussed).
+
+The paper's argument has four parts:
+
+1. **Motivation (Section 2).** Debugging RxJS is hard because the call stack at a breakpoint says nothing
+   about the dataflow graph. The running example is a type-ahead client. Placing `catchError` *after*
+   `switchMap` kills the whole client on the first failed query, because that `catchError` guards the
+   `switchMap` and therefore the `fromEvent`, not the inner `from(query(x))`. Moving it inside the
+   projection fixes it. This repository reproduces exactly that pair of pipelines in
+   `test/error_handling/catch3.js` and the type-ahead itself in `test/recipes/type_ahead.html`.
+2. **λrx, a small-step operational semantics (Section 3)** for a representative subset: `fromEvent`,
+   `combine` (combineLatest), `concat`, `every`, `catchError`, `share`, `take`, `map`, `switchMap`, plus
+   `sub` and `unsub`. The runtime state is a **heap H** of subscription values linked by references (the
+   subscription graph) and a **queue Q** of (event, reference) pairs. Evaluation alternates between a
+   graph-construction phase (subscribe and unsubscribe rules) and a reactive phase (reduction rules that
+   pop an event and deliver it to the subscriber). External events are appended to the back of Q, like
+   JavaScript macrotasks; internal events are pushed to the front, which models the default synchronous
+   scheduler. Pushing them to the back instead would model the async scheduler. Errors are forwarded to
+   the subscriber by default (rule R_Error) unless a `catchError` handles them (R_Catch), and `share` is
+   reference counted.
+3. **Debugging applications of the model (Section 4).** Three kinds of stack trace for reactive programs
+   (construction-phase frames, reactive-phase dataflow paths, and a dataflow path followed by frames when
+   user code such as a `switchMap` projection throws); "unexpected state" alerts, for example a
+   `combineLatest` source that completes without emitting or a `switchMap` inner that is cancelled before
+   emitting; and a **runtime safety invariant** `safe_H(s, n)`, meaning at most n event sources below s
+   are not guarded by a `catchError` or the root subscriber. Because `concat`, `catchError`, and
+   `switchMap` add subscriptions at runtime, the heap must be rechecked when they fire.
+4. **Implementation (Section 5)**: this code base, built on AsyncM, the authors' cancellable-thread monad
+   from their SLE 2021 paper "A Concurrency Model for JavaScript with Cooperative Cancellation". The paper
+   notes two deliberate departures from the formal model: there is no explicit event queue (promises and
+   synchronous emitters play that role), and sources are reached through variables while events flow
+   downstream through emitter objects rather than bidirectional heap references.
+
+The conclusion observes that under the default scheduler the semantics is deterministic, since JavaScript
+is single-threaded and internal events are always processed before the next external one. Section 12 of
+this document maps the paper's constructs onto the code.
+
 ## 2. Repository layout
 
 ```
@@ -432,11 +479,49 @@ Observed while reading the code; useful to know before relying on a result.
 
 ## 11. Suggested reading order
 
-1. `rxjs.js` lines 1–415: `Progress`, `AsyncM`, `Emitter`, `MVar`, `MChannel`, and the event classes.
-2. The engine at the end of the `Observable` class: `_subscribe`, `_listen`, `subscribe`, `pipe`.
-3. `fmap`, `takeWhile`, and `scan` for the basic operator template.
-4. `join`, `mergeAll`, `concatAll`, `exhaustMap` for flattening semantics; `zip` for the channel style.
-5. `catchError`, `retry`, `retryWhen` for the error side-channel.
-6. `Subject`, `RefCountSubject`, `ReplaySubject`, and `fix` for multicasting.
-7. `debugging/README.md`, then the `RxError` block and `Subscription.run()` in `debugging/rxjs.js`,
+1. The paper (see 1.1): Section 2 for the motivating bug, 3.4 for event propagation, 4.3 for the safety
+   invariant, and 5 for the implementation notes.
+2. `rxjs.js` lines 1–415: `Progress`, `AsyncM`, `Emitter`, `MVar`, `MChannel`, and the event classes.
+3. The engine at the end of the `Observable` class: `_subscribe`, `_listen`, `subscribe`, `pipe`.
+4. `fmap`, `takeWhile`, and `scan` for the basic operator template.
+5. `join`, `mergeAll`, `concatAll`, `exhaustMap` for flattening semantics; `zip` for the channel style.
+6. `catchError`, `retry`, `retryWhen` for the error side-channel.
+7. `Subject`, `RefCountSubject`, `ReplaySubject`, and `fix` for multicasting.
+8. `debugging/README.md`, then the `RxError` block and `Subscription.run()` in `debugging/rxjs.js`,
    then `debugging/safe.js`.
+
+## 12. How the code maps to the paper
+
+The table pairs each construct of the paper's λrx model with its counterpart in `rxjs.js`.
+
+| Paper (λrx) | Code |
+|---|---|
+| Subscription value `s` in heap `H`; references `r` to source and child subscriptions | `Subscription` object with `source` and `child` fields; references are plain object links |
+| Events `next(v)`, `end`, `error` | `Next`, `End`, `Error` (`ErrorEvent` in the debugging build) |
+| Queue `Q`; internal events pushed to the front | No explicit queue. `Emitter.emit` calls listeners synchronously, which is the front-of-queue behaviour |
+| External events appended to the back of `Q` (rule R_From) | DOM events, `setTimeout`, `setInterval`, and promise resolutions arrive through the JavaScript event loop |
+| `o.sub(f)` evaluating to `sub(r, f)` (rules E_Sub, R_Sub1–3) | `Observable.subscribe()`: root `Progress` plus a root error sink that cancels everything |
+| Subscribe rules S_* (graph construction) | Each operator's `ef` calling `_subscribe` on its sources |
+| Unsubscribe rules U_* (recursive removal from the heap) | `Progress.cancel()` recursing into child progresses; `Subscription.unsubscribe()` |
+| R_Error: an error is forwarded to the subscriber by default | `_listen` routes `Error` events to the downstream emitter, bypassing the operator |
+| R_Catch: subscribe to `f()`, unsubscribe the failed source | `catchError`'s custom sink: `p1.cancel()`, then `_subscribe` to `f(error)` |
+| `switchMap(r1, f, r2, b)` with the end flag `b` (R_Switch1–5) | `join()` with `subscription.source`, `subscription.child`, and the `ending` flag |
+| `share(o, r)` / `sharing(x)` with reference counting (S_Share, U_Share, R_Share) | `RefCountSubject`: `_first` connects, `_last` unsubscribes, `_fire` broadcasts to every subscriber's emitter |
+| `take(r, n)` unsubscribing its source after n events (R_Take2) | `takeWhile(..., inclusive)` calling `p1.cancel()` and then `e.complete()` |
+| `combine(r1, r2, v1, v2, n)` | `combineLatest` with its `value` array, `flags`, and completion counter `j` |
+| Section 4.1: dataflow path followed by stack frames | `RxError` in the debugging build: trimmed frames, build location, `rxGraphTrace` |
+| Section 4.3: `safe_H(s, n)` and rechecking when the graph grows | `debugging/safe.js` and the checkpoint re-check in `Subscription.run()` |
+| Section 5, Figure 13: two threads per subscription sharing an emitter and a progress | `_subscribe`: the `ef` thread writes to `e1`; the listener installed by `_listen` consumes it |
+| Section 5: `concatAll` through a blocking channel | `MChannel` in `concatAll` and `zip` |
+
+Where the code and the paper differ:
+
+- **Root budget.** The paper's rule `safe_H(r, 1) ⇒ safe_H(sub(r, _), 0)` lets the root subscriber guard one
+  event source, and Figure 3 of the paper shows `fromEvent` guarded by the root. `safe.js` starts its walk
+  with budget 0 at the tracked root subscription, so it requires every source to sit under a `catchError`.
+  The paper's "correct" type-ahead pipeline would therefore be reported unsafe by `safe.js`.
+- The unexpected-state alerts of Section 4.2 and the expression breakpoints of Section 4.1 are described
+  but not implemented. The paper itself says breakpoints on expressions such as `take(n)` were left out.
+- The paper counts `sharing(x)` subscriptions in the heap; the code counts them in `Subject.subscribers`.
+- The semantics covers nine operators; the code covers about a hundred, including the buffering operators
+  (`concatAll`, `zip`, buffers, windows) that Section 3.5 of the paper discusses only informally.
