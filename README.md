@@ -35,8 +35,15 @@ subscription graph and progress tree, the build in `debugging/` can attach a fil
 operator-chain trace to every error, and its `safe()` checker can walk a live pipeline and verify an
 invariant such as "every producer is guarded by a `catchError`".
 
-A full walkthrough of the architecture, the operator patterns, and the debugging build is in
-[docs/project-explanation.md](docs/project-explanation.md).
+## Documentation
+
+- [docs/project-explanation.md](docs/project-explanation.md): a full walkthrough of the architecture, the
+  operator patterns, the debugging build, and a mapping from the paper's formal rules to the code.
+- [docs/debugging-tool-design.md](docs/debugging-tool-design.md): how the paper's subscription-graph model
+  and a Mealy-machine model of operators compare, and how both would fit into a debugging tool for real
+  RxJS applications.
+- [docs/debugger-prototype-sketch.md](docs/debugger-prototype-sketch.md): a concept-only sketch of such a
+  debugger, component by component, with a walkthrough of the paper's type-ahead bug.
 
 ## Background
 

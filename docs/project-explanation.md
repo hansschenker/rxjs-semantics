@@ -447,6 +447,9 @@ dynamically under `switchMap`. The re-check's console output is currently commen
 timers with equal durations into one `setTimeout`/`setInterval` (not wired into any operator); a `raceWith`
 alias is exported.
 
+How these ideas compare with a Mealy-machine view of operators, and how both would fit into a debugging
+tool for real RxJS applications, is discussed in [debugging-tool-design.md](debugging-tool-design.md).
+
 ## 9. Tests and recipes
 
 The roughly 190 files under `test/` are one-operator examples in the style of learnrxjs.io, each with a
